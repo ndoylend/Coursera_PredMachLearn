@@ -1,0 +1,368 @@
+---
+title: "Practical Machine Learning: Assignment"
+author: "ND"
+date: "18/11/2014"
+output: 
+  html_document:
+    css: custom.css
+bibliography: references.bibtex
+---
+  
+# Executive Summary
+
+Machine learning is an application of statistics and computer science techniques that can be used to build predictive models from data. @Velloso2013 describe an application of machine learning to activity recognition for the automatic detection of mistakes in weight lifting exercises. Data from this study is used here to investigate whether it is possible to categorise mistakes on the basis of measurements from wearable inertial measurement units. Of the five models created, the most accurate model used the Random Forest method and achieved an out-of-sample accuracy of 99.5%. Although capable of accurate results, the Random Forest method is computationally expensive, taking about 12 minutes to build a model from a training set of about 700,000 data points on a modest Core i5 laptop with 4Gb RAM. The second most accurate model used the Stochastic Gradient Boosting method and achieved an out-of-sample accuracy of 96.6% in about a quarter of the time of the Random Forest method.
+
+```{r load_packages, echo=FALSE, message=FALSE}
+library(caret)
+library(rpart)
+library(xtable)
+library(ggplot2)
+library(reshape2)
+```
+
+```{r multicore_support, eval=FALSE, echo=FALSE, message=FALSE}
+# Multicore support can be enabled for a speed increase
+# on multicore systems with sufficient memory
+library(doMC)
+registerDoMC(cores = 4)
+```
+
+```{r random_seed, echo=FALSE}
+# Set random seed for reproducibility
+set.seed(1)
+```
+
+# Introduction
+
+The analysis described here was carried out using R [@RCoreTeam2014]. Tables were
+formatted using xtable [@Dahl2014] and the plots were created with ggplot2 [@Wickham2009].
+Much of the underlying code in the R Markdown source has been hidden to aid readability. The full source can be found in my [github repository](https://github.com/ndoylend/Coursera_PredMachLearn).
+
+# Data Processing
+
+```{r load_data, echo=FALSE, cache=TRUE}
+setwd("~/Copy/Coursera/08 - Practical Machine Learning/Coursera_PredMachLearn")
+data <- read.csv("pml-training.csv")
+```
+
+The first step in the analysis is to load the training data from the .csv file provided. The raw data contains `r length(data)` variables, however not all of them are useful features for model training. Since the model is intended to predict mistake class on the basis of data from the wearable inertial measurement units, unnecessary variables such as ID and timestamps have been removed. The raw data also contains summary statistics of the measurements calculated at sliding time windows. These data were used in the prediction algorithm described in the original paper but do not appear in the test data provided for this exercise and are therefore not used in this analysis.
+
+```{r select_features, echo=FALSE}
+features <- c("roll_belt", "pitch_belt", "yaw_belt", "total_accel_belt",
+              "gyros_belt_x", "gyros_belt_y", "gyros_belt_z",
+              "accel_belt_x", "accel_belt_y", "accel_belt_z",
+              "magnet_belt_x", "magnet_belt_y", "magnet_belt_z",
+              "roll_arm", "pitch_arm", "yaw_arm", "total_accel_arm",
+              "gyros_arm_x", "gyros_arm_y", "gyros_arm_z",
+              "accel_arm_x", "accel_arm_y", "accel_arm_z",
+              "magnet_arm_x", "magnet_arm_y", "magnet_arm_z",
+              "roll_dumbbell", "pitch_dumbbell", "yaw_dumbbell", "total_accel_dumbbell",
+              "gyros_dumbbell_x", "gyros_dumbbell_y", "gyros_dumbbell_z",
+              "accel_dumbbell_x", "accel_dumbbell_y", "accel_dumbbell_z",
+              "magnet_dumbbell_x", "magnet_dumbbell_y", "magnet_dumbbell_z",
+              "roll_forearm", "pitch_forearm", "yaw_forearm", "total_accel_forearm",
+              "gyros_forearm_x", "gyros_forearm_y", "gyros_forearm_z",
+              "accel_forearm_x", "accel_forearm_y", "accel_forearm_z",
+              "magnet_forearm_x", "magnet_forearm_y", "magnet_forearm_z")
+outcome <- "classe"
+
+data <- data.frame(cbind(data[features], classe = data[outcome]))
+```
+
+The following features were used in this analysis:
+```{r list_features, echo=FALSE}
+features
+```
+
+# Data Partitioning
+
+The tidied data was divided 70/30 into a training set and a testing set. The training set is used to create the models while the testing set is reserved for evaluation the models' out-of-sample prediction accuracy.
+
+```{r partitioning, echo=FALSE}
+inTrain <- createDataPartition(y = data$classe, p = 0.7, list = FALSE)
+training <- data[inTrain, ]
+testing <- data[-inTrain, ]
+rm(inTrain, data) # tidy up
+```
+
+The training set contains `r nrow(training)` rows with the following breakdown of mistake class:
+
+```{r summary, echo=FALSE}
+summary(training$classe)
+```
+
+# Model Creation
+
+## Modelling with rpart
+
+My first attempt at model creation was using the rpart package [@Therneau2014]:
+
+```{r rpart1, echo=TRUE, results='asis'}
+modName <- "modFit.rpart1"
+filename <- paste0(modName,".RData")
+
+if (file.exists(filename)) {
+  load(file = filename)
+} else {
+  time <- system.time(modFit <- rpart(classe ~ ., data = training))
+  save(modFit, time, file = filename, compress=TRUE)
+}
+
+predicted <- predict(modFit, newdata = testing)
+predicted <- as.factor(apply(predicted, 1, which.max))
+levels(predicted) <- c("A","B","C","D","E")
+results <- confusionMatrix(data = predicted, reference = testing$classe)
+
+summary.rpart1 <- data.frame(model ="rpart",
+                       accuracy = results$overall[["Accuracy"]],
+                       time = time[["elapsed"]],
+                       size = format(object.size(modFit), units = "Mb"))
+```
+
+The model was quick to generate and resulted an an overall out-of-sample accuracy of `r sprintf("%.1f", 100 * summary.rpart1$accuracy)`%. Not bad for a first attempt, but hopefully better accuracy can be achieved with more sophisticated methods. Table 1 shows the confusion matrix (reference class by column and predicted class by row).
+
+```{r rpart1_matrix, echo=FALSE, results='asis'}
+print(xtable(results$table,
+             caption = "*Table 1: Confusion matrix: rpart*"), type = "html")
+```
+
+Table 2 shows the top 5 most important variables in the rpart model.
+
+```{r rpart1_imp, echo=FALSE, results='asis'}
+importance <- varImp(modFit)[order(varImp(modFit), decreasing = TRUE), , drop = FALSE]
+print(xtable(head(importance, n = 5),
+             caption = "*Table 2: Top 5 variable importance: rpart*"), type = "html")
+```
+
+The relationship between the top 5 variables is shown in the pairs plot (Figure 1).
+
+<table>
+<tr><td>
+```{r pairs_plot, echo = FALSE, eval=TRUE, cache=TRUE, out.width='600px', out.height='500px'}
+par(bg = "white")
+pairs(x = training[,c("roll_belt","pitch_forearm","roll_forearm","magnet_dumbbell_z","yaw_belt")],
+      col = rainbow(5)[training$classe], upper.panel = NULL,
+      oma=c(4, 4, 6, 10))
+# allow plotting of the legend outside the figure region 
+# (ie within the space left by making the margins big)
+par(xpd = TRUE)
+legend(0.8, 0.7, as.vector(unique(training$classe)),  
+       fill = rainbow(5), cex = 0.7)
+```
+<tr><td>
+*Figure 1: Pairs plot of top 5 most important variables: rpart*
+</td>
+</tr>
+</table>
+
+## Modelling with caret
+
+Subsequent models were created using the caret package [@Kuhn2014]. The `trainControl` function was used to configure a 5-fold cross validation and the `train` function was then used to train the actual models.
+
+```{r caret_defaults, echo=TRUE}
+modControl <- trainControl(method = "cv", number = 5, repeats = 1)
+```
+
+### Recursive Partitioning and Regression Trees (caret/rpart)
+
+My first attempt with caret used `method = "rpart"`:
+
+```{r rpart2_mod, echo=TRUE}
+modName <- "modFit.rpart2"
+
+filename <- paste0(modName,".RData")
+if (file.exists(filename)) {
+  load(file = filename)
+} else {
+  time <- system.time(modFit <- train(classe ~ ., method = "rpart",
+                                          trControl = modControl, data = training))
+  save(modFit, time, file = filename, compress=TRUE)
+}
+
+predicted <- predict(modFit, newdata = testing)
+results <- confusionMatrix(data = predicted, reference = testing$classe)
+
+summary.rpart2 <- data.frame(model ="caret/rpart",
+                       accuracy = results$overall[["Accuracy"]],
+                       time = time[["elapsed"]],
+                       size = format(object.size(modFit), units = "Mb"))
+```
+
+The results from using `method = "rpart"` within caret did not result in a usable model; the model accuracy was `r sprintf("%.1f", 100 * summary.rpart2$accuracy)`%, which is worse than using `rpart` on its own. Presumably this is a result of incorrect settings with caret and could be improved given a deeper understanding of caret's configuration options.
+
+<table>
+<tr><td>
+```{r rpart2_matrix, echo=FALSE, out.width='500px', out.height='400px'}
+confMatrix.norm <- results$table/rowSums(results$table) # Normalise by row sums
+confMatrix.norm <- confMatrix.norm[, c(5:1)]
+ggplot(melt(confMatrix.norm), aes(Prediction, Reference, fill = value)) +
+  geom_raster() + geom_text(aes(label = sprintf("%1.1f%%", 100 * value))) +
+  scale_fill_gradientn(colours = rev(heat.colors(16))) +
+  ggtitle("Normalised confusion matrix")
+```
+<tr><td>
+*Figure 2: Confusion matrix: caret/rpart*
+</td>
+</tr>
+</table>
+
+NB The column of NaN% values occurs because prediction column for class D is completely empty.
+
+### Linear Discriminant Algorithm (caret/lda)
+
+```{r lda_mod, echo=FALSE, message=FALSE}
+modName <- "modFit.lda"
+modControl <- trainControl(method = "cv", number = 5, repeats = 1)
+
+filename <- paste0(modName,".RData")
+if (file.exists(filename)) {
+  load(file = filename)
+} else {
+  time <- system.time(modFit <- train(classe ~ ., method = "lda",
+                                          trControl = modControl, data = training))
+  save(modFit, time, file = filename, compress=TRUE)
+}
+
+predicted <- predict(modFit, newdata = testing)
+results <- confusionMatrix(data = predicted, reference = testing$classe)
+
+summary.lda <- data.frame(model ="caret/lda",
+                       accuracy = results$overall[["Accuracy"]],
+                       time = time[["elapsed"]],
+                       size = format(object.size(modFit), units = "Mb"))
+```
+
+The next attempt used `method = "lda"`. The results were an improvement, but an accuracy of `r sprintf("%.1f", 100 * summary.lda$accuracy)`% is still less than that achieved with `rpart`.
+
+<table>
+<tr><td>
+```{r lda_matrix, echo=FALSE, out.width='500px', out.height='400px', cache=TRUE}
+confMatrix.norm <- results$table/rowSums(results$table) # Normalise by row sums
+confMatrix.norm <- confMatrix.norm[, c(5:1)]
+ggplot(melt(confMatrix.norm), aes(Prediction, Reference, fill = value)) +
+  geom_raster() + geom_text(aes(label = sprintf("%1.1f%%", 100 * value))) +
+  scale_fill_gradientn(colours = rev(heat.colors(16))) +
+  ggtitle("Normalised confusion matrix")
+```
+</td></tr>
+<tr><td>
+*Figure 3: Confusion matrix: caret/lda*
+</td></tr>
+</table>
+
+### Stochastic Gradient Boosting (caret/gbm)
+
+```{r gbm_mod, echo=FALSE, eval=TRUE, message=FALSE}
+modName <- "modFit.gbm"
+modControl <- trainControl(method = "cv", number = 5, repeats = 1)
+
+filename <- paste0(modName,".RData")
+if (file.exists(filename)) {
+  load(file = filename)
+} else {
+  time <- system.time(modFit <- train(classe ~ ., method = "gbm",
+                                          trControl = modControl, data = training))
+  save(modFit, time, file = filename, compress=TRUE)
+}
+
+predicted <- predict(modFit, newdata = testing)
+results <- confusionMatrix(data = predicted, reference = testing$classe)
+
+summary.gbm <- data.frame(model ="caret/gbm",
+                       accuracy = results$overall[["Accuracy"]],
+                       time = time[["elapsed"]],
+                       size = format(object.size(modFit), units = "Mb"))
+```
+
+The results using `method = "gbm"` were significantly better than the previous models, with an out-of-sample accuracy of `r sprintf("%.1f", 100 * summary.gbm$accuracy)`%. The improved accuracy came at the cost of model training time, which took about `r sprintf("%.1f", summary.gbm$time/60)` minutes.
+
+<table>
+<tr><td>
+```{r gbm_matrix, echo=FALSE, out.width='500px', out.height='400px', cache=TRUE}
+confMatrix.norm <- results$table/rowSums(results$table) # Normalise by row sums
+confMatrix.norm <- confMatrix.norm[, c(5:1)]
+ggplot(melt(confMatrix.norm), aes(Prediction, Reference, fill = value)) +
+  geom_raster() + geom_text(aes(label = sprintf("%1.1f%%", 100 * value))) +
+  scale_fill_gradientn(colours = rev(heat.colors(16))) +
+  ggtitle("Normalised confusion matrix")
+```
+</td></tr>
+<tr><td>
+*Figure 4: Confusion matrix: caret/gbm*
+</td></tr>
+</table>
+
+### Random Forest (caret/rf)
+```{r rf_mod, echo=FALSE, eval=TRUE, message=FALSE}
+modName <- "modFit.rf"
+modControl <- trainControl(method = "cv", number = 5, repeats = 1)
+
+filename <- paste0(modName,".RData")
+if (file.exists(filename)) {
+  load(file = filename)
+} else {
+  time <- system.time(modFit <- train(classe ~ ., method = "rf",
+                                          trControl = modControl, data = training))
+  save(modFit, time, file = filename, compress=TRUE)
+}
+
+predicted <- predict(modFit, newdata = testing)
+results <- confusionMatrix(data = predicted, reference = testing$classe)
+
+summary.rf <- data.frame(model ="caret/rf",
+                       accuracy = results$overall[["Accuracy"]],
+                       time = time[["elapsed"]],
+                       size = format(object.size(modFit), units = "Mb"))
+```
+
+Using `method = "rf"` improved the out-of-sample accuracy to `r sprintf("%.1f", 100 * summary.rf$accuracy)`%. This relatively small improvement in accuracy was accompanied by a significant increase in computational expense; model training time took about `r sprintf("%.1f", summary.rf$time/60)` minutes.
+
+<table>
+<tr><td>
+```{r rf_matrix, echo=FALSE, eval=TRUE, message=FALSE, out.width='500px', out.height='400px', cache=TRUE}
+confMatrix.norm <- results$table/rowSums(results$table) # Normalise by row sums
+confMatrix.norm <- confMatrix.norm[, c(5:1)]
+ggplot(melt(confMatrix.norm), aes(Prediction, Reference, fill = value)) +
+  geom_raster() + geom_text(aes(label = sprintf("%1.1f%%", 100 * value))) +
+  scale_fill_gradientn(colours = rev(heat.colors(16))) +
+  ggtitle("Normalised confusion matrix")
+```
+</td></tr>
+<tr><td>
+*Figure 5: Confusion matrix: caret/rf*
+</td></tr>
+</table>
+
+# Results
+
+The results of the five models tested are shown in the table below, which lists out-of-sample accuracy, model training time (in seconds) and model object size.
+
+```{r, echo=FALSE, results='asis'}
+summaries <- (rbind(summary.rpart1, summary.rpart2, summary.lda, summary.gbm, summary.rf))
+comparison <- xtable(summaries, caption="*Table 3: Model comparison*")
+digits(comparison)[3] <- 3
+print(comparison, type = "html")
+```
+
+# Conclusion
+
+Of the models tested, the Random Forest method achieved the highest accuracy and correctly predicted all twenty test cases used in the final evaluation of the model. Subsequent testing showed that the Stochastic Gradient Boosting method correctly predicted all but one of the test cases. Random Forest is therefore the preferred method for accurate modelling, provided sufficient computing power is available. While slightly less accurate in this instance, Stochastic Gradient Boosting appears to provide a reasonable compromise between computational cost and accuracy. The caret models used a 5-fold cross validation but otherwise all models were used with their default settings; these could no doubt be tweaked to improve performance.
+
+```{r generate_answers, echo=FALSE, eval=FALSE}
+# Generate answer files
+evaluation <- read.csv("pml-testing.csv")
+answers <- predict(modFit, newdata = evaluation)
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i], file = filename,
+                quote = FALSE, row.names = FALSE, col.names = FALSE)
+  }
+}
+
+pml_write_files(answers)
+```
+
+# References

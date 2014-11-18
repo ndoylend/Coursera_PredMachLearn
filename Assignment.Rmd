@@ -134,11 +134,11 @@ print(xtable(head(importance, n = 5),
              caption = "*Table 2: Top 5 variable importance: rpart*"), type = "html")
 ```
 
-The relationship between the top 5 variables is shown in the pairs plot (Figure 1).
+<!-- The relationship between the top 5 variables is shown in the pairs plot (Figure 1).
 
-<table>
-<tr><td>
-```{r pairs_plot, echo = FALSE, eval=TRUE, cache=TRUE, out.width='600px', out.height='500px'}
+  <table>
+  <tr><td>
+```{r pairs_plot, echo = FALSE, eval=FALSE, cache=TRUE, out.width='600px', out.height='500px'}
 par(bg = "white")
 pairs(x = training[,c("roll_belt","pitch_forearm","roll_forearm","magnet_dumbbell_z","yaw_belt")],
       col = rainbow(5)[training$classe], upper.panel = NULL,
@@ -149,11 +149,12 @@ par(xpd = TRUE)
 legend(0.8, 0.7, as.vector(unique(training$classe)),  
        fill = rainbow(5), cex = 0.7)
 ```
-<tr><td>
-*Figure 1: Pairs plot of top 5 most important variables: rpart*
-</td>
-</tr>
-</table>
+  <tr><td>
+  *Figure 1: Pairs plot of top 5 most important variables: rpart*
+  </td>
+  </tr>
+  </table>
+-->
 
 ## Modelling with caret
 
@@ -201,7 +202,7 @@ ggplot(melt(confMatrix.norm), aes(Prediction, Reference, fill = value)) +
   ggtitle("Normalised confusion matrix")
 ```
 <tr><td>
-*Figure 2: Confusion matrix: caret/rpart*
+*Figure 1: Confusion matrix: caret/rpart*
 </td>
 </tr>
 </table>
@@ -246,7 +247,7 @@ ggplot(melt(confMatrix.norm), aes(Prediction, Reference, fill = value)) +
 ```
 </td></tr>
 <tr><td>
-*Figure 3: Confusion matrix: caret/lda*
+*Figure 2: Confusion matrix: caret/lda*
 </td></tr>
 </table>
 
@@ -288,7 +289,7 @@ ggplot(melt(confMatrix.norm), aes(Prediction, Reference, fill = value)) +
 ```
 </td></tr>
 <tr><td>
-*Figure 4: Confusion matrix: caret/gbm*
+*Figure 3: Confusion matrix: caret/gbm*
 </td></tr>
 </table>
 
@@ -329,7 +330,7 @@ ggplot(melt(confMatrix.norm), aes(Prediction, Reference, fill = value)) +
 ```
 </td></tr>
 <tr><td>
-*Figure 5: Confusion matrix: caret/rf*
+*Figure 4: Confusion matrix: caret/rf*
 </td></tr>
 </table>
 

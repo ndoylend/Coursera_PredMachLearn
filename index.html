@@ -80,7 +80,28 @@
 				<h2>Model Creation</h2>
 				<div id="modelling-with-rpart" class="section level2">
 					<h3>Modelling with rpart</h3>
-					<p>My first attempt at model creation was using the rpart package <span class="citation">(Therneau, Atkinson, and Ripley 2014)</span>. The model was quick to generate and resulted an an overall out-of-sample accuracy of 75.2%. Not bad for a first attempt, but hopefully better accuracy can be achieved with more sophisticated methods. Table 1 shows the confusion matrix (reference class by column and predicted class by row).</p>
+					<p>My first attempt at model creation was using the rpart package <span class="citation">(Therneau, Atkinson, and Ripley 2014)</span>:</p>
+<pre class="r"><code>modName &lt;- &quot;modFit.rpart1&quot;
+filename &lt;- paste0(modName,&quot;.RData&quot;)
+
+if (file.exists(filename)) {
+  load(file = filename)
+} else {
+  time &lt;- system.time(modFit &lt;- rpart(classe ~ ., data = training))
+  save(modFit, time, file = filename, compress=TRUE)
+}
+
+predicted &lt;- predict(modFit, newdata = testing)
+predicted &lt;- as.factor(apply(predicted, 1, which.max))
+levels(predicted) &lt;- c(&quot;A&quot;,&quot;B&quot;,&quot;C&quot;,&quot;D&quot;,&quot;E&quot;)
+results &lt;- confusionMatrix(data = predicted, reference = testing$classe)
+
+summary.rpart1 &lt;- data.frame(model =&quot;rpart&quot;,
+                       accuracy = results$overall[[&quot;Accuracy&quot;]],
+                       time = time[[&quot;elapsed&quot;]],
+                       size = format(object.size(modFit), units = &quot;Mb&quot;))</code></pre>
+<p>The model was quick to generate and resulted an an overall out-of-sample accuracy of 75.2%. Not bad for a first attempt, but hopefully better accuracy can be achieved with more sophisticated methods. Table 1 shows the confusion matrix (reference class by column and predicted class by row).</p>
+
 					<!-- html table generated in R 3.1.2 by xtable 1.7-4 package -->
 					<!-- Tue Nov 18 12:13:03 2014 -->
 					<table border="1">
@@ -271,35 +292,35 @@ summary.rpart2 &lt;- data.frame(model =&quot;caret/rpart&quot;,
 		<tr>
 			<td align="right">1</td>
 			<td>rpart</td>
-			<td align="right">0.75</td>
+			<td align="right">0.752</td>
 			<td align="right">2.62</td>
 			<td>1 Mb</td>
 		</tr>
 		<tr>
 			<td align="right">2</td>
 			<td>caret/rpart</td>
-			<td align="right">0.49</td>
+			<td align="right">0.494</td>
 			<td align="right">15.68</td>
 			<td>12 Mb</td>
 		</tr>
 		<tr>
 			<td align="right">3</td>
 			<td>caret/lda</td>
-			<td align="right">0.71</td>
+			<td align="right">0.706</td>
 			<td align="right">2.58</td>
 			<td>4.6 Mb</td>
 		</tr>
 		<tr>
 			<td align="right">4</td>
 			<td>caret/gbm</td>
-			<td align="right">0.97</td>
+			<td align="right">0.969</td>
 			<td align="right">274.00</td>
 			<td>18.3 Mb</td>
 		</tr>
 		<tr>
 			<td align="right">5</td>
 			<td>caret/rf</td>
-			<td align="right">1.00</td>
+			<td align="right">0.997</td>
 			<td align="right">720.16</td>
 			<td>49.8 Mb</td>
 		</tr>
